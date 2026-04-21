@@ -1,10 +1,13 @@
+import logging
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Union
+from typing import List, Dict
 
 CACHE_FILE_NAME = ".cache_pkg"
+ERR_FILE_NAME = "error.output"
 
+logger = logging.getLogger(__name__)
 
 def get_pkgs(req_path: Path) -> List[str]:
     """
@@ -13,7 +16,7 @@ def get_pkgs(req_path: Path) -> List[str]:
     :return: A list of all packages
     """
     if not req_path.exists():
-        print(f"Error: The provided requirements file at {req_path.as_posix()} is not found.")
+        logger.error(f"The provided requirements file at {req_path.as_posix()} is not found.")
         return []
     # we don't use the entire file, because we want better error handling
     with open(req_path, "r") as f:
@@ -46,7 +49,7 @@ def generate_cache(packages: List[str], cache_path: Path) -> bool:
             existing_pkgs = get_pkgs(cache_path)
             new_packages.update(existing_pkgs)
         except IOError as e:
-            print(f"--- Warning: Could not read existing cache {cache_path}: {e} ---")
+            logger.warning(f"Could not read existing cache {cache_path}: {e}")
 
     # step3: Write the combined, sorted set back to the file
     try:
@@ -55,17 +58,30 @@ def generate_cache(packages: List[str], cache_path: Path) -> bool:
         with cache_path.open("w", encoding="utf-8", newline='\n') as f:
             for package in sorted(new_packages):
                 f.write(f"{package}\n")
-
-        print(f"--- Cache updated at {cache_path.name} (Total: {len(new_packages)} packages) ---")
+        logger.info(f"Cache updated at {cache_path.as_posix()} (Total: {len(new_packages)} packages)")
         return True
 
     except IOError as e:
-        print(f"--- Error writing to {cache_path}: {e} ---")
+        logger.error(f"Error writing to {cache_path}: {e}")
         return False
 
 
-def write_success_pkgs(pkgs: List[str], dest_path: Path) -> bool:
-    req_path = Path(requirements_file)
+def write_err_output(error_pkgs: Dict[str, str], dest_path: Path) -> bool:
+    # check if error_pkgs is not none and contains something
+    if not error_pkgs:
+        return True
+
+    # if it has error message, write them on the error.log file
+    error_log_path = dest_path / ERR_FILE_NAME
+    try:
+        with error_log_path.open("w", encoding="utf-8", newline='\n') as f:
+            for pkg, error_msgs in error_pkgs.items():
+                f.write(f"{pkg}: {error_msgs}\n")
+        logger.error(f"Error log updated at {error_log_path.as_posix()} (Total: {len(error_pkgs)} packages)")
+        return True
+    except IOError as e:
+        logger.error(f"Error writing to {error_log_path}: {e}")
+        return False
 
 
 def download_wheels(requirements_file: str, output_dir: str):
@@ -75,6 +91,7 @@ def download_wheels(requirements_file: str, output_dir: str):
     """
     req_path = Path(requirements_file)
     dest_path = Path(output_dir)
+    pkg_path = dest_path / "pkgs"
     success_pkgs = []
     # store failed pkgs, if pip wheel can't compile or download the pkg.
     failed_pkgs = {}
@@ -83,8 +100,7 @@ def download_wheels(requirements_file: str, output_dir: str):
 
     # step2: Create destination directory if it doesn't exist
     dest_path.mkdir(parents=True, exist_ok=True)
-
-    print(f"--- Starting download packages to: {dest_path.absolute()} ---")
+    logger.info(f"Starting download packages to: {dest_path.absolute()}")
 
     # step3: get cached packages list
     # to avoid redownload everything, we cached the download or complied .wheel file
@@ -93,9 +109,9 @@ def download_wheels(requirements_file: str, output_dir: str):
 
     # step4: download or compile the .wheel file
     for package in packages:
-        print(f"Processing: {package}...")
+        logger.info(f"Processing: {package}...")
         if package in cache_pkgs:
-            print(f"package {package} already downloaded: skipping...")
+            logger.info(f"package {package} already downloaded: skipping...")
             continue
         # 'pip wheel' is the one-stop-shop for your requirements:
         # 1. It checks if a wheel exists (downloads it).
@@ -103,20 +119,28 @@ def download_wheels(requirements_file: str, output_dir: str):
         # 3. It handles dependencies automatically.
         cmd = [
             sys.executable, "-m", "pip", "wheel",
-            "--wheel-dir", str(dest_path),
-            "--find-links", str(dest_path),  # Check local dir first to avoid re-downloads
+            "--wheel-dir", str(pkg_path),
+            "--find-links", str(pkg_path),  # Check local dir first to avoid re-downloads
             package
         ]
 
         try:
             # We use subprocess.run to execute the command for each row
             subprocess.run(cmd, check=True, capture_output=True, text=True)
-            print(f"  [OK] {package} is ready in {output_dir}")
+            logger.info(f"[OK] {package} is ready in {output_dir}")
             success_pkgs.append(package)
         except subprocess.CalledProcessError as e:
-            print(f"  [ERROR] Failed to process {package}: {e.stderr}")
+            logger.error(f"Failed to process {package}: {e.stderr}")
             failed_pkgs[package] = e.stderr
     # step 5: update cache
-    generate_cache(success_pkgs, cache_path)
-    print(f"\n--- All done! ---")
-    print(f"Files stored in: {dest_path.absolute()}")
+    cache_ok = generate_cache(success_pkgs, cache_path)
+    if not cache_ok:
+        logger.error(f"Failed to generate cache file: {cache_path.as_posix()}")
+        return
+    # step6: write error log if some download are failed
+    log_ok = write_err_output(failed_pkgs, dest_path)
+    if not log_ok:
+        logger.error(f"Failed to write error log: {ERR_FILE_NAME}")
+        return
+    logger.info(f"Wheel files are stored in: {pkg_path.as_posix()}")
+    logger.info("--- All done! ---")
