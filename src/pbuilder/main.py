@@ -24,7 +24,7 @@ def build(
         help="Path to the [bold green]requirements.txt[/bold green] file."
     ),
     output: Path = typer.Option(
-        "./offline_dist",
+        "./target",
         "--output", "-o",
         file_okay=False,
         dir_okay=True,
@@ -60,15 +60,6 @@ def build(
     except Exception as e:
         typer.secho(f"💥 Error: {e}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
-
-# def main():
-#     # setup logger
-#     log_path = Path(__file__).parent / "logs"
-#     setup_logger(log_dir=log_path)
-#     # setup parameters
-#     test_dir = "C:/Users/pliu/Documents/git/build_pyenv/tests/tmp/out/proj1"
-#     test_req = "C:/Users/pliu/Documents/git/build_pyenv/tests/tmp/proj1.txt"
-#     download_wheels(test_req, test_dir)
 
 
 if __name__ == "__main__":

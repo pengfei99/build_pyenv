@@ -66,24 +66,6 @@ def generate_cache(packages: List[str], cache_path: Path) -> bool:
         return False
 
 
-def write_err_output(error_pkgs: Dict[str, str], dest_path: Path) -> bool:
-    # check if error_pkgs is not none and contains something
-    if not error_pkgs:
-        return True
-
-    # if it has error message, write them on the error.log file
-    error_log_path = dest_path / ERR_FILE_NAME
-    try:
-        with error_log_path.open("w", encoding="utf-8", newline='\n') as f:
-            for pkg, error_msgs in error_pkgs.items():
-                f.write(f"{pkg}: {error_msgs}\n")
-        logger.info(f"Error log updated at {error_log_path.as_posix()} (Total: {len(error_pkgs)} packages)")
-        return True
-    except IOError as e:
-        logger.error(f"Error writing to {error_log_path}: {e}")
-        return False
-
-
 def download_wheels(requirements_file: str, output_dir: str):
     """
     Downloads sources and builds wheels locally so the air-gapped
@@ -102,10 +84,13 @@ def download_wheels(requirements_file: str, output_dir: str):
     dest_path.mkdir(parents=True, exist_ok=True)
     logger.info(f"Starting download packages to: {dest_path.absolute()}")
 
-    # step3: get cached packages list
+    # step3: if cache file exists, get cached packages list
     # to avoid redownload everything, we cached the download or complied .wheel file
-    cache_path = dest_path / CACHE_FILE_NAME
-    cache_pkgs = get_pkgs(cache_path)
+    cache_file = dest_path / CACHE_FILE_NAME
+    if cache_file.exists():
+        cache_pkgs = get_pkgs(cache_file)
+    else:
+        cache_pkgs = []
 
     # step4: download or compile the .wheel file
     for package in packages:
@@ -123,7 +108,6 @@ def download_wheels(requirements_file: str, output_dir: str):
             "--find-links", str(pkg_path),  # Check local dir first to avoid re-downloads
             package
         ]
-
         try:
             # We use subprocess.run to execute the command for each row
             subprocess.run(cmd, check=True, capture_output=True, text=True)
@@ -133,14 +117,10 @@ def download_wheels(requirements_file: str, output_dir: str):
             logger.error(f"Failed to process {package}: {e.stderr}")
             failed_pkgs[package] = e.stderr
     # step 5: update cache
-    cache_ok = generate_cache(success_pkgs, cache_path)
+    cache_ok = generate_cache(success_pkgs, cache_file)
     if not cache_ok:
-        logger.error(f"Failed to generate cache file: {cache_path.as_posix()}")
+        logger.error(f"Failed to generate cache file: {cache_file.as_posix()}")
         return
-    # step6: write error log if some download are failed
-    log_ok = write_err_output(failed_pkgs, dest_path)
-    if not log_ok:
-        logger.error(f"Failed to write error log: {ERR_FILE_NAME}")
-        return
+
     logger.info(f"Wheel files are stored in: {pkg_path.as_posix()}")
     logger.info("--- All done! ---")
