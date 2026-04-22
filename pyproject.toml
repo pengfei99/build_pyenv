@@ -1,0 +1,37 @@
+[project]
+name = "build-pyenv"
+version = "0.1.0"
+description = "This tool helps administrator to download python packages from a requirements.txt. The downloaded package can be import to an air-capped server"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    {name = "Pengfei Liu", email = "pengfei.liu@casd.eu"}
+]
+# Runtime dependencies
+dependencies = [
+   "typer[all]>=0.9.0", # [all] includes 'rich' for beautiful formatting
+    "pip>=23.0",        # Ensure pip is present for the 'pip wheel' command
+    "setuptools>=67.0",
+    "wheel>=0.40.0",
+]
+
+[project.optional-dependencies]
+# Development dependencies (install with: pip install -e ".[dev]")
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=23.0",      # Code formatter
+    "isort>=5.12",      # Import sorter
+]
+
+[project.scripts]
+# This allows the user to run 'build-pyenv' directly in the terminal
+build-pyenv = "pbuilder.main:app"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
